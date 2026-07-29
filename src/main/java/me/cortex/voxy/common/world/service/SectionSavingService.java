@@ -17,7 +17,7 @@ public class SectionSavingService {
     private final ConcurrentLinkedDeque<SaveEntry> saveQueue = new ConcurrentLinkedDeque<>();
 
     public SectionSavingService(ServiceManager sm) {
-        this.service = sm.createServiceNoCleanup(() -> this::processJob, 100, "Section saving service");
+        this.service = sm.createServiceNoCleanup(() -> this::processJob, 500, "Section saving service");
     }
 
     private void processJob() {
@@ -49,20 +49,12 @@ public class SectionSavingService {
             //Acquire the section for use
             section.acquire();
 
-            //Hard limit the save count to prevent OOM
-            if (this.getTaskCount() > 5_000) {
-                //wait a bit
+            // Apply light backpressure under extreme load without stealing tasks to caller/server thread
+            if (this.getTaskCount() > 25_000) {
                 try {
-                    Thread.sleep(10);
+                    Thread.sleep(5);
                 } catch (InterruptedException e) {
                     throw new RuntimeException(e);
-                }
-                //If we are still full, process entries in the queue ourselves instead of waiting for the service
-                while (this.getTaskCount() > 5_000 && this.service.isLive()) {
-                    if (!this.service.steal()) {
-                        break;
-                    }
-                    this.processJob();
                 }
             }
 

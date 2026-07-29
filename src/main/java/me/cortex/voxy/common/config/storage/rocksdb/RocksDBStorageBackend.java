@@ -202,7 +202,7 @@ public class RocksDBStorageBackend extends StorageBackend {
     @Override
     public void flush() {
         try {
-            this.db.flushWal(true);
+            this.db.flushWal(false);
         } catch (RocksDBException e) {
             throw new RuntimeException(e);
         }
@@ -210,7 +210,9 @@ public class RocksDBStorageBackend extends StorageBackend {
 
     @Override
     public void close() {
-        this.flush();
+        try {
+            this.db.flushWal(true);
+        } catch (Exception ignored) {}
         this.closeList.forEach(AbstractImmutableNativeReference::close);
     }
 

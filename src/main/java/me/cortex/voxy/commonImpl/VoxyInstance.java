@@ -37,7 +37,7 @@ public abstract class VoxyInstance {
         this.savingService = new SectionSavingService(this.getServiceManager());
         this.ingestService = new VoxelIngestService(this.getServiceManager());
         this.importManager = this.createImportManager();
-        this.savingServiceRateLimiter = () -> this.savingService.getTaskCount() < 1200;
+        this.savingServiceRateLimiter = () -> this.savingService.getTaskCount() < 8000;
         this.worldCleaner = new Thread(() -> {
             try {
                 while (this.isRunning) {
