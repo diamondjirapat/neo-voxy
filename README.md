@@ -19,11 +19,12 @@ Neo-Voxy is a NeoForge port of the Voxy mod, a far-distance rendering mod utiliz
 
 ## Current State
 
-| Feature | Status |
-|---------|--------|
-| LOD Streaming Mod Compat | ✅ Functional | https://modrinth.com/mod/voxy-worldgen
-| Shader Support (Iris) | ✅ Voxy Shaders Functional |
-| Singleplayer Ingest | ✅ Functional |
+| Feature | Status | Link |
+|---------|--------|------|
+| LOD Streaming Mod Compat | ✅ Functional | [voxy-worldgen](https://modrinth.com/mod/voxy-worldgen) |
+| Shader Support (Iris) | ✅ Voxy Shaders Functional | |
+| Singleplayer Ingest | ✅ Functional | |
+| Dedicated Server Support | ✅ Functional | |
 
 ## Requirements
 
@@ -31,20 +32,18 @@ Neo-Voxy is a NeoForge port of the Voxy mod, a far-distance rendering mod utiliz
 |------------|------------------|
 | Minecraft | `1.21.1` |
 | NeoForge | `21.1.77+` |
-| Sodium | `0.6.0+` (NeoForge edition) |
+| Sodium | `0.6.0+` to `0.8+` (NeoForge edition) |
 | Iris | Required (NeoForge edition) |
 
 ## Installation
 
 1. Install NeoForge 21.1.77 or later for Minecraft 1.21.1
-2. Install Sodium for NeoForge (version 0.6.0+)
+2. Install Sodium for NeoForge (version 0.6.0+ / 0.8.12+)
 3. Install Iris Shaders for NeoForge
-4. Place the Neo-Voxy jar in your mods folder
-
-
+4. Place the Neo-Voxy jar in your mods folder (works on both Client and Dedicated Server)
 
 ## Known Issues
-* ⚠️ **INCOMPATABILITIES**: BetterFpsDist.
+* ⚠️ **INCOMPATIBILITIES**: BetterFpsDist.
 
 ## Contributing
 
@@ -76,6 +75,6 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ---
 
-**Version**: `0.6.0`  
+**Version**: `0.6.5`  
 **Minecraft**: `1.21.1`  
 **Mod Loader**: NeoForge `21.1.77+`
