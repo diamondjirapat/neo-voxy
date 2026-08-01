@@ -1,9 +1,8 @@
 package me.cortex.voxy;
 
-import me.cortex.voxy.client.VoxyClient;
-import me.cortex.voxy.client.VoxyCommands;
 import me.cortex.voxy.common.network.VoxyNetworkHandler;
 import me.cortex.voxy.commonImpl.VoxyCommon;
+import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
@@ -11,7 +10,6 @@ import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.fml.loading.FMLLoader;
 import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
 import net.neoforged.neoforge.common.NeoForge;
-import net.neoforged.api.distmarker.Dist;
 
 @Mod(Voxy.MODID)
 public class Voxy {
@@ -25,23 +23,29 @@ public class Voxy {
         // Register network handler (both client and server)
         modEventBus.addListener(VoxyNetworkHandler::register);
 
-        // Register client setup event
+        // Register client setup event only on client dist
         if (FMLLoader.getDist() == Dist.CLIENT) {
-            modEventBus.addListener(this::onClientSetup);
-            NeoForge.EVENT_BUS.addListener(this::onRegisterClientCommands);
+            ClientInitializer.register(modEventBus);
         }
     }
 
-    private void onClientSetup(FMLClientSetupEvent event) {
-        event.enqueueWork(() -> {
-            VoxyClient.initVoxyClient();
-            VoxyClient.onClientSetup();
-        });
-    }
+    private static class ClientInitializer {
+        private static void register(IEventBus modEventBus) {
+            modEventBus.addListener(ClientInitializer::onClientSetup);
+            NeoForge.EVENT_BUS.addListener(ClientInitializer::onRegisterClientCommands);
+        }
 
-    private void onRegisterClientCommands(RegisterClientCommandsEvent event) {
-        if (VoxyCommon.isAvailable()) {
-            event.getDispatcher().register(VoxyCommands.register());
+        private static void onClientSetup(FMLClientSetupEvent event) {
+            event.enqueueWork(() -> {
+                me.cortex.voxy.client.VoxyClient.initVoxyClient();
+                me.cortex.voxy.client.VoxyClient.onClientSetup();
+            });
+        }
+
+        private static void onRegisterClientCommands(RegisterClientCommandsEvent event) {
+            if (VoxyCommon.isAvailable()) {
+                event.getDispatcher().register(me.cortex.voxy.client.VoxyCommands.register());
+            }
         }
     }
 }

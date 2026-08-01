@@ -166,6 +166,10 @@ public class LodStreamingService implements AutoCloseable {
                 player.getUUID(),
                 uuid -> new PlayerStreamingState(player, sharedBandwidthLimit, perPlayerLimitKBps));
 
+        // Reset streaming progress to start full ring-expansion scan from 0
+        state.currentRing = 0;
+        state.consecutiveEmptyRings = 0;
+
         // Load saved bloom filter from previous session
         BloomFilter savedFilter = loadPlayerCache(player.getUUID());
         if (savedFilter != null) {

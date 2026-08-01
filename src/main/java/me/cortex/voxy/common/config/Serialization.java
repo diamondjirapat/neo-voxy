@@ -113,6 +113,12 @@ public class Serialization {
             if (clzName.contains("VoxyConfigScreenPages")) {
                 continue;// Dont want to modmenu incase it doesnt exist
             }
+            if (clzName.contains("VoxySodiumConfigEntryPoint")) {
+                continue;// Client-only Sodium config entry point
+            }
+            if (clzName.startsWith("me.cortex.voxy.client.")) {
+                continue;// Skip client-only config classes
+            }
             if (clzName.endsWith("VoxyConfig")) {
                 continue;// Special case to prevent recursive loading pain
             }
@@ -150,8 +156,8 @@ public class Serialization {
                         break;
                     }
                 }
-            } catch (Exception e) {
-                Logger.error("Error while setting up config serialization", e);
+            } catch (Throwable e) {
+                Logger.error("Error while setting up config serialization for " + clzName, e);
             }
         }
 

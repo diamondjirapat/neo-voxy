@@ -17,6 +17,10 @@ import java.util.List;
 import java.util.function.LongConsumer;
 
 public class RocksDBStorageBackend extends StorageBackend {
+    private static final ThreadLocal<ByteBuffer> DIRECT_KEY_BUFFER = ThreadLocal.withInitial(() ->
+            ByteBuffer.allocateDirect(8).order(ByteOrder.nativeOrder())
+    );
+
     private final RocksDB db;
     private final ColumnFamilyHandle worldSections;
     private final ColumnFamilyHandle idMappings;
@@ -116,7 +120,9 @@ public class RocksDBStorageBackend extends StorageBackend {
 
     @Override
     public void iterateStoredSectionPositions(LongConsumer consumer) {
-        ByteBuffer keyBuff = ByteBuffer.allocateDirect(8).order(ByteOrder.nativeOrder());
+        ByteBuffer keyBuff = DIRECT_KEY_BUFFER.get();
+        keyBuff.clear();
+        keyBuff.limit(8);
         long keyBuffPtr = UnsafeUtil.memAddress(keyBuff);
         var iter = this.db.newIterator(this.worldSections, this.sectionReadOps);
         try {
@@ -160,7 +166,9 @@ public class RocksDBStorageBackend extends StorageBackend {
     @Override
     public void setSectionData(long key, MemoryBuffer data) {
         try {
-            ByteBuffer keyBuff = ByteBuffer.allocateDirect(8).order(ByteOrder.nativeOrder());
+            ByteBuffer keyBuff = DIRECT_KEY_BUFFER.get();
+            keyBuff.clear();
+            keyBuff.limit(8);
             UnsafeUtil.memPutLong(UnsafeUtil.memAddress(keyBuff), Long.reverseBytes(swizzlePos(key)));
             this.db.put(this.worldSections, this.sectionWriteOps, keyBuff, data.asByteBuffer());
         } catch (RocksDBException e) {

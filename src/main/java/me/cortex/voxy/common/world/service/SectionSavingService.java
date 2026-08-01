@@ -49,15 +49,6 @@ public class SectionSavingService {
             //Acquire the section for use
             section.acquire();
 
-            // Apply light backpressure under extreme load without stealing tasks to caller/server thread
-            if (this.getTaskCount() > 25_000) {
-                try {
-                    Thread.sleep(5);
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
-            }
-
             this.saveQueue.add(new SaveEntry(in, section));
             this.service.execute();
         }

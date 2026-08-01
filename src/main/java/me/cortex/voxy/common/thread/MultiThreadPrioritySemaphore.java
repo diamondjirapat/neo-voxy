@@ -144,16 +144,20 @@ public class MultiThreadPrioritySemaphore {
             int status = this.executor.getAsInt();
             if (status == 0) return false;//We finished pure and true
             if (status == 1) return false;// we didnt run a job because there either wasnt any or no services exist
-            if (2 <= status) {//2 and 3 mean failed to find a service that can currently run, but should try again after a delay
+            if (2 <= status) {//2 and 3 mean failed to find a service that can currently run
                 try {
                     if (block.localSemaphore.tryAcquire(10, TimeUnit.MILLISECONDS)) {//Await 10 millis for a local job to come in
                         //We do this confusing thing
                         block.blockSemaphore.tryAcquire();//Try acquire the block that we just got
                         this.pooledRelease(1);//We need to release back into the pool
                         return true;
+                    } else {
+                        this.pooledRelease(1);
+                        return false;
                     }
                 } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
+                    this.pooledRelease(1);
+                    return false;
                 }
             }
         }

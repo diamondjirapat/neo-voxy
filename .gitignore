@@ -3,3 +3,6 @@
 /build/
 /run/
 /.idea/
+/.claude
+/.gradle_home
+/back

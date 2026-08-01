@@ -4,9 +4,9 @@ license="ARR"
 issueTrackerURL="https://github.com/cortex/voxy/issues"
 
 [[mods]]
-modId="voxy"
+modId="neovoxy"
 version="${version}"
-displayName="Neo-Voxy"
+displayName="NeoVoxy"
 displayTest="IGNORE_SERVER_VERSION"
 logoFile="assets/voxy/icon.png"
 authors="Cortex"
@@ -14,21 +14,21 @@ description='''
 Far distance rendering mod utilizing LoDs for massive render distances.
 '''
 
-[[dependencies.voxy]]
+[[dependencies.neovoxy]]
 modId="neoforge"
 type="required"
 versionRange="[21.1.0,)"
 ordering="NONE"
 side="BOTH"
 
-[[dependencies.voxy]]
+[[dependencies.neovoxy]]
 modId="minecraft"
 type="required"
 versionRange="[1.21.1,1.21.2)"
 ordering="NONE"
 side="BOTH"
 
-[[dependencies.voxy]]
+[[dependencies.neovoxy]]
 modId="sodium"
 type="required"
 versionRange="[0.6.0,)"

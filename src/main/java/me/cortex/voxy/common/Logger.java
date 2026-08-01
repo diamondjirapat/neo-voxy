@@ -53,17 +53,19 @@ public class Logger {
         String error = (INSERT_CLASS?("["+callClsName()+"]: "):"") + Stream.of(args).map(Logger::objToString).collect(Collectors.joining(" "));
         LOGGER.error(error, throwable);
         if (VoxyCommon.IS_IN_MINECRAFT && !VoxyCommon.IS_DEDICATED_SERVER) {
-            error0(error);//This is done so that on dedicated server, the Minecraft client class isnt loaded
+            ClientLogger.error0(error);//This is done so that on dedicated server, the Minecraft client class isnt loaded
         }
     }
 
-    private static void error0(String error) {
-        var instance = Minecraft.getInstance();
-        if (instance != null) {
-            instance.executeIfPossible(() -> {
-                var player = Minecraft.getInstance().player;
-                if (player != null) player.displayClientMessage(Component.literal(error), true);
-            });
+    private static class ClientLogger {
+        private static void error0(String error) {
+            var instance = Minecraft.getInstance();
+            if (instance != null) {
+                instance.executeIfPossible(() -> {
+                    var player = Minecraft.getInstance().player;
+                    if (player != null) player.displayClientMessage(Component.literal(error), true);
+                });
+            }
         }
     }
 

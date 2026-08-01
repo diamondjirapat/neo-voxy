@@ -159,13 +159,21 @@ public class VoxyNetworkHandler {
      * In single-player, we don't need network streaming - data is local.
      */
     public static boolean isSinglePlayer() {
-        var mc = net.minecraft.client.Minecraft.getInstance();
-        if (mc == null)
+        if (net.neoforged.fml.loading.FMLLoader.getDist() == net.neoforged.api.distmarker.Dist.DEDICATED_SERVER) {
             return false;
+        }
+        return ClientUtils.isSinglePlayer();
+    }
 
-        // Check if we have an integrated server (single-player or LAN host)
-        var integratedServer = mc.getSingleplayerServer();
-        return integratedServer != null;
+    private static class ClientUtils {
+        private static boolean isSinglePlayer() {
+            var mc = net.minecraft.client.Minecraft.getInstance();
+            if (mc == null)
+                return false;
+
+            var integratedServer = mc.getSingleplayerServer();
+            return integratedServer != null;
+        }
     }
 
     /**

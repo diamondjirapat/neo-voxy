@@ -5,15 +5,18 @@ import me.cortex.voxy.client.core.model.bakery.BudgetBufferRenderer;
 import me.cortex.voxy.client.core.rendering.util.SharedIndexBuffer;
 import me.cortex.voxy.common.Logger;
 import me.cortex.voxy.commonImpl.VoxyCommon;
-import net.minecraft.resources.ResourceLocation;
 import java.util.HashSet;
-import java.util.function.Consumer;
-import java.util.function.Function;
 
 public class VoxyClient {
     private static final HashSet<String> FREX = new HashSet<>();
+    private static boolean initialized = false;
 
-    public static void initVoxyClient() {
+    public static synchronized void initVoxyClient() {
+        if (initialized) {
+            return;
+        }
+        initialized = true;
+
         Capabilities.init(); // Ensure clinit is called
 
         boolean systemSupported = Capabilities.INSTANCE.compute && Capabilities.INSTANCE.indirectParameters;
@@ -22,6 +25,11 @@ public class VoxyClient {
             BudgetBufferRenderer.init();
 
             VoxyCommon.setInstanceFactory(VoxyClientInstance::new);
+            try {
+                net.caffeinemc.mods.sodium.client.config.ConfigManager.registerConfigEntryPoint(me.cortex.voxy.client.config.VoxySodiumConfigEntryPoint::new, "neovoxy");
+            } catch (Throwable t) {
+                Logger.warn("Failed to register Sodium config entry point: " + t.getMessage());
+            }
 
             if (!Capabilities.INSTANCE.subgroup) {
                 Logger.warn("GPU does not support subgroup operations, expect some performance degradation");

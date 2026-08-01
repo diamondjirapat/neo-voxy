@@ -75,11 +75,12 @@ dependencies {
     neoForge "net.neoforged:neoforge:${project.neoforge_version}"
 
     // Sodium for NeoForge (required dependency)
-    modCompileOnly "maven.modrinth:sodium:mc1.21.1-0.6.13-neoforge"
-    modRuntimeOnly "maven.modrinth:sodium:mc1.21.1-0.6.13-neoforge"
+    modCompileOnly "maven.modrinth:sodium:mc1.21.1-0.8.12-neoforge"
+    modRuntimeOnly "maven.modrinth:sodium:mc1.21.1-0.8.12-neoforge"
+    compileOnly files("libs/sodium-0.8.12-inner.jar")
 
     // Optional: Iris shaders support
-    modCompileOnly("maven.modrinth:iris:1.8.0+1.21.1-neoforge")
+    modCompileOnly("maven.modrinth:iris:1.8.14-beta.1+1.21.1-neoforge")
 
     // Optional: Lithium support (for LithiumHashPalette compatibility)
     modCompileOnly("maven.modrinth:lithium:mc1.21.1-0.15.0-neoforge")

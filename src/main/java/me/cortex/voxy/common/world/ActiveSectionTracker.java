@@ -8,6 +8,7 @@ import org.jetbrains.annotations.Nullable;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.Arrays;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.StampedLock;
 
@@ -31,6 +32,7 @@ public class ActiveSectionTracker {
         public volatile int preAcquireCount;
         public volatile int postAcquireCount;
         public volatile T obj;
+        public final CountDownLatch latch = new CountDownLatch(1);
     }
 
     private final AtomicInteger loadedSections = new AtomicInteger();
@@ -135,65 +137,61 @@ public class ActiveSectionTracker {
 
         //If this thread was the one to create the reference then its the thread to load the section
         if (isLoader) {
-            int status = 0;
-            if (section == null) {//Secondary cache miss
-                section = new WorldSection(WorldEngine.getLevel(key),
-                        WorldEngine.getX(key),
-                        WorldEngine.getY(key),
-                        WorldEngine.getZ(key),
-                        this);
+            try {
+                int status = 0;
+                if (section == null) {//Secondary cache miss
+                    section = new WorldSection(WorldEngine.getLevel(key),
+                            WorldEngine.getX(key),
+                            WorldEngine.getY(key),
+                            WorldEngine.getZ(key),
+                            this);
 
-                status = this.loader.load(section);
+                    status = this.loader.load(section);
 
-                if (status < 0) {
-                    //TODO: Instead if throwing an exception do something better, like attempting to regen
-                    //throw new IllegalStateException("Unable to load section: ");
-                    Logger.error("Unable to load section " + section.key + " setting to air");
-                    status = 1;
+                    if (status < 0) {
+                        Logger.error("Unable to load section " + section.key + " setting to air");
+                        status = 1;
+                    }
+
+                    if (status == 1) {
+                        //We need to set the data to air as it is undefined state
+                        Arrays.fill(section.data, 0);
+                    }
+                    section.acquire(1);
                 }
+                int preAcquireCount = (int) VolatileHolder.PRE_ACQUIRE_COUNT.getAndSet(holder, 0);
+                section.acquire(preAcquireCount);//pre acquire amount
+                VolatileHolder.POST_ACQUIRE_COUNT.set(holder, preAcquireCount);
 
-                //TODO: REWRITE THE section tracker _again_ to not be so shit and jank, and so that Arrays.fill is not 10% of the execution time
-                if (status == 1) {
-                    //We need to set the data to air as it is undefined state
-                    Arrays.fill(section.data, 0);
+                VarHandle.storeStoreFence();//Do not reorder setting this object
+                holder.obj = section;
+                VarHandle.releaseFence();
+                if (nullOnEmpty && status == 1) {//If its air return null as stated, release the section aswell
+                    section.release();
+                    return null;
                 }
-                section.acquire(1);
+                return section;
+            } finally {
+                holder.latch.countDown();
             }
-            int preAcquireCount = (int) VolatileHolder.PRE_ACQUIRE_COUNT.getAndSet(holder, 0);
-            section.acquire(preAcquireCount);//pre acquire amount
-            VolatileHolder.POST_ACQUIRE_COUNT.set(holder, preAcquireCount);
-
-            //TODO: mark if the section was loaded null
-
-            VarHandle.storeStoreFence();//Do not reorder setting this object
-            holder.obj = section;
-            VarHandle.releaseFence();
-            if (nullOnEmpty && status == 1) {//If its air return null as stated, release the section aswell
-                section.release();
-                return null;
-            }
-            return section;
         } else {
-            //TODO: mark the time the loading started in nanos, then here if it has been a while, spin lock, else jump back to the executing service and do work
-            VarHandle.fullFence();
-            while ((section = holder.obj) == null) {
-                VarHandle.fullFence();
-                Thread.onSpinWait();
-                Thread.yield();
+            if (holder.obj == null) {
+                try {
+                    holder.latch.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
             }
+            section = holder.obj;
 
             //Try to acquire a pre lock
             if (0<((int)VolatileHolder.POST_ACQUIRE_COUNT.getAndAdd(holder, -1))) {
                 //We managed to acquire one of the pre locks, so just return the section
                 return section;
             } else {
-                //lock.lock();
-                {//Dont think need to lock here
-                    if (section.tryAcquire()) {
-                        return section;
-                    }
+                if (section != null && section.tryAcquire()) {
+                    return section;
                 }
-                //lock.unlock();
 
                 //We failed everything, try get it again
                 return this.acquire(key, nullOnEmpty);
