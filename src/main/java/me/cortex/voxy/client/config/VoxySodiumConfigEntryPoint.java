@@ -21,7 +21,7 @@ public class VoxySodiumConfigEntryPoint implements ConfigEntryPoint {
         VoxyConfig storage = VoxyConfig.CONFIG;
         StorageEventHandler saveHandler = storage::save;
 
-        ModOptionsBuilder modOptions = builder.registerModOptions("neovoxy", "Voxy", "0.2.9");
+        ModOptionsBuilder modOptions = builder.registerModOptions("neovoxy", "Voxy", "0.7");
         OptionPageBuilder pageBuilder = builder.createOptionPage();
         pageBuilder.setName(Component.translatable("voxy.config.title"));
 

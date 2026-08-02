@@ -10,6 +10,8 @@ import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.fml.loading.FMLLoader;
 import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.server.ServerAboutToStartEvent;
+import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 
 @Mod(Voxy.MODID)
 public class Voxy {
@@ -26,6 +28,23 @@ public class Voxy {
         // Register client setup event only on client dist
         if (FMLLoader.getDist() == Dist.CLIENT) {
             ClientInitializer.register(modEventBus);
+        } else {
+            ServerInitializer.register();
+        }
+    }
+
+    private static class ServerInitializer {
+        private static void register() {
+            NeoForge.EVENT_BUS.addListener(ServerInitializer::onServerAboutToStart);
+            NeoForge.EVENT_BUS.addListener(ServerInitializer::onServerStopping);
+        }
+
+        private static void onServerAboutToStart(ServerAboutToStartEvent event) {
+            me.cortex.voxy.server.VoxyServer.initVoxyServer(event.getServer());
+        }
+
+        private static void onServerStopping(ServerStoppingEvent event) {
+            me.cortex.voxy.server.VoxyServer.onServerStopping();
         }
     }
 
