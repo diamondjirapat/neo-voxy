@@ -21,7 +21,7 @@ public class VoxySodiumConfigEntryPoint implements ConfigEntryPoint {
         VoxyConfig storage = VoxyConfig.CONFIG;
         StorageEventHandler saveHandler = storage::save;
 
-        ModOptionsBuilder modOptions = builder.registerModOptions("neovoxy", "Voxy", "0.7");
+        ModOptionsBuilder modOptions = builder.registerModOptions("neovoxy", "Voxy", "0.7.5");
         OptionPageBuilder pageBuilder = builder.createOptionPage();
         pageBuilder.setName(Component.translatable("voxy.config.title"));
 
@@ -134,6 +134,10 @@ public class VoxySodiumConfigEntryPoint implements ConfigEntryPoint {
                         var vrs = vrsh.getVoxyRenderSystem();
                         if (vrs != null) {
                             vrs.setRenderDistance(v);
+                            var receptionService = vrs.getLodReceptionService();
+                            if (receptionService != null) {
+                                receptionService.requestSync();
+                            }
                         }
                     }
                 }, () -> storage.sectionRenderDistance)

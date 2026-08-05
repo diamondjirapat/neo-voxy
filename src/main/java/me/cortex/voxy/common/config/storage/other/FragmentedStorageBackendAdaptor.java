@@ -59,6 +59,16 @@ public class FragmentedStorageBackendAdaptor extends StorageBackend {
     }
 
     @Override
+    public boolean supportsSectionExistenceChecks() {
+        return Arrays.stream(this.backends).allMatch(StorageBackend::supportsSectionExistenceChecks);
+    }
+
+    @Override
+    public boolean hasSection(long key) {
+        return this.backends[this.getSegmentId(key)].hasSection(key);
+    }
+
+    @Override
     public void putIdMapping(int id, ByteBuffer data) {
         //Replicate the mappings over all the dbs to mean the chance of recovery in case of corruption is 30x
         for (var backend : this.backends) {

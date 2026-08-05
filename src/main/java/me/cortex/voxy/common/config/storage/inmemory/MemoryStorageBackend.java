@@ -84,6 +84,19 @@ public class MemoryStorageBackend extends StorageBackend {
     }
 
     @Override
+    public boolean supportsSectionExistenceChecks() {
+        return true;
+    }
+
+    @Override
+    public boolean hasSection(long key) {
+        var map = this.getMap(key);
+        synchronized (map) {
+            return map.containsKey(key);
+        }
+    }
+
+    @Override
     public void putIdMapping(int id, ByteBuffer data) {
         synchronized (this.idMappings) {
             var cpy = UnsafeUtil.memAlloc(data.remaining());

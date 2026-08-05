@@ -500,7 +500,13 @@ public class VoxyRenderSystem {
         DownloadStream.INSTANCE.flushWaitClear();
 
         // Release hold on the world
-        this.worldIn.releaseRef();
+        try {
+            if (this.worldIn != null) {
+                this.worldIn.releaseRef();
+            }
+        } catch (Exception e) {
+            Logger.error("Error releasing world reference during VoxyRenderSystem shutdown", e);
+        }
         Logger.info("Render shutdown completed");
     }
 

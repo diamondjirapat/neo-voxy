@@ -10,16 +10,16 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.LockSupport;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
 import org.apache.commons.compress.archivers.zip.ZipFile;
-import org.lwjgl.system.MemoryUtil;
-
 import com.mojang.serialization.Codec;
 
 import me.cortex.voxy.common.Logger;
@@ -57,6 +57,7 @@ import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.chunk.storage.RegionFileVersion;
 
 public class WorldImporter implements IDataImporter {
+    private static final int MAX_PENDING_IMPORT_CHUNKS = 1024;
     private final WorldEngine world;
     private final PalettedContainerRO<Holder<Biome>> defaultBiomeProvider;
     private final Codec<PalettedContainerRO<Holder<Biome>>> biomeCodec;
@@ -67,11 +68,23 @@ public class WorldImporter implements IDataImporter {
 
     private final ConcurrentLinkedDeque<Runnable> jobQueue = new ConcurrentLinkedDeque<>();
     private final Service service;
+    private final BooleanSupplier runChecker;
+    private final int maxLodLayer;
 
     private volatile boolean isRunning;
 
     public WorldImporter(WorldEngine worldEngine, Level mcWorld, ServiceManager sm, BooleanSupplier runChecker) {
+        this(worldEngine, mcWorld, sm, runChecker, WorldEngine.MAX_LOD_LAYER);
+    }
+
+    public WorldImporter(WorldEngine worldEngine, Level mcWorld, ServiceManager sm, BooleanSupplier runChecker,
+            int maxLodLayer) {
+        if (maxLodLayer < 0 || maxLodLayer > WorldEngine.MAX_LOD_LAYER) {
+            throw new IllegalArgumentException("Invalid maximum LOD layer: " + maxLodLayer);
+        }
         this.world = worldEngine;
+        this.maxLodLayer = maxLodLayer;
+        this.runChecker = runChecker;
         this.service = sm.createService(()->new Pair<>(()->this.jobQueue.poll().run(), ()->{}), 3, "World importer", runChecker);
 
         var biomeRegistry = mcWorld.registryAccess().registryOrThrow(Registries.BIOME);
@@ -245,13 +258,19 @@ public class WorldImporter implements IDataImporter {
         this.worker = new Thread(() -> {
             this.estimatedTotalChunks.addAndGet(regionFiles.length*1024);
             for (var file : regionFiles) {
+                if (!this.waitForRunPermission()) {
+                    this.completionCallback.onCompletion(this.totalChunks.get());
+                    this.worker = null;
+                    return;
+                }
                 this.estimatedTotalChunks.addAndGet(-1024);
                 try {
                     importer.importRegion(file);
                 } catch (Exception e) {
                     throw new RuntimeException(e);
                 }
-                while ((this.totalChunks.get()-this.chunksProcessed.get() > 10_000) && this.isRunning) {
+                while ((this.totalChunks.get() - this.chunksProcessed.get()
+                        >= MAX_PENDING_IMPORT_CHUNKS) && this.isRunning) {
                     try {
                         Thread.sleep(1);
                     } catch (InterruptedException e) {
@@ -259,7 +278,6 @@ public class WorldImporter implements IDataImporter {
                     }
                 }
                 if (!this.isRunning) {
-                    this.service.blockTillEmpty();
                     this.completionCallback.onCompletion(this.totalChunks.get());
                     this.worker = null;
                     return;
@@ -292,7 +310,17 @@ public class WorldImporter implements IDataImporter {
         return this.isRunning || (this.worker != null && this.worker.isAlive());
     }
 
+    private boolean waitForRunPermission() {
+        while (this.isRunning && !this.runChecker.getAsBoolean()) {
+            LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(10));
+        }
+        return this.isRunning;
+    }
+
     private void importRegionFile(File file) throws IOException {
+        if (!this.waitForRunPermission()) {
+            return;
+        }
         var name = file.getName();
         var sections = name.split("\\.");
         if (sections.length != 4 || (!sections[0].equals("r")) || (!sections[3].equals("mca"))) {
@@ -331,7 +359,10 @@ public class WorldImporter implements IDataImporter {
             return;
         }
         for (int idx = 0; idx < 1024; idx++) {
-            int sectorMeta = Integer.reverseBytes(MemoryUtil.memGetInt(regionFile.address+idx*4));//Assumes little endian
+            if (!this.waitForRunPermission()) {
+                return;
+            }
+            int sectorMeta = Integer.reverseBytes(UnsafeUtil.memGetInt(regionFile.address+idx*4));//Assumes little endian
             if (sectorMeta == 0) {
                 //Empty chunk
                 continue;
@@ -352,8 +383,8 @@ public class WorldImporter implements IDataImporter {
             {
                 long base = regionFile.address + sectorStart * 4096L;
                 int chunkLen = sectorCount * 4096;
-                int m = Integer.reverseBytes(MemoryUtil.memGetInt(base));
-                byte b = MemoryUtil.memGetByte(base + 4L);
+                int m = Integer.reverseBytes(UnsafeUtil.memGetInt(base));
+                byte b = UnsafeUtil.memGetByte(base + 4L);
                 if (m == 0) {
                     Logger.error("Chunk is allocated, but stream is missing");
                 } else {
@@ -370,6 +401,14 @@ public class WorldImporter implements IDataImporter {
                     } else if (n < 0) {
                         Logger.error("Declared size of chunk is negative");
                     } else {
+                        while (this.isRunning
+                                && this.totalChunks.get() - this.chunksProcessed.get()
+                                >= MAX_PENDING_IMPORT_CHUNKS) {
+                            LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(1));
+                        }
+                        if (!this.isRunning) {
+                            return;
+                        }
                         var data = new MemoryBuffer(n).cpyFrom(base + 5);
                         this.jobQueue.add(()-> {
                             if (!this.isRunning) {
@@ -405,7 +444,7 @@ public class WorldImporter implements IDataImporter {
             private long offset = 0;
             @Override
             public int read() {
-                return MemoryUtil.memGetByte(data.address + (this.offset++)) & 0xFF;
+                return UnsafeUtil.memGetByte(data.address + (this.offset++)) & 0xFF;
             }
 
             @Override
@@ -521,7 +560,9 @@ public class WorldImporter implements IDataImporter {
                 }
         );
 
-        WorldConversionFactory.mipSection(csec, this.world.getMapper());
-        WorldUpdater.insertUpdate(this.world, csec);
+        if (this.maxLodLayer > 0) {
+            WorldConversionFactory.mipSection(csec, this.world.getMapper());
+        }
+        WorldUpdater.insertUpdate(this.world, csec, this.maxLodLayer);
     }
 }

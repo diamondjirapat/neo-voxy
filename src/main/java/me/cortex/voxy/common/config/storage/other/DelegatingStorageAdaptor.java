@@ -33,6 +33,16 @@ public class DelegatingStorageAdaptor extends StorageBackend {
     }
 
     @Override
+    public boolean supportsSectionExistenceChecks() {
+        return this.delegate.supportsSectionExistenceChecks();
+    }
+
+    @Override
+    public boolean hasSection(long key) {
+        return this.delegate.hasSection(key);
+    }
+
+    @Override
     public void putIdMapping(int id, ByteBuffer data) {
         this.delegate.putIdMapping(id, data);
     }

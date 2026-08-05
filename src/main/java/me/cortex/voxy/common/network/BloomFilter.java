@@ -68,10 +68,10 @@ public class BloomFilter {
     /**
      * Add a section key to the filter.
      */
-    public void add(long key) {
+    public synchronized void add(long key) {
         for (int i = 0; i < numHashFunctions; i++) {
             int hash = hash(key, i);
-            int bitIndex = Math.abs(hash % numBits);
+            int bitIndex = Math.floorMod(hash, numBits);
             bits[bitIndex / 64] |= (1L << (bitIndex % 64));
         }
     }
@@ -99,10 +99,10 @@ public class BloomFilter {
      * 
      * @return true if the key might be present, false if definitely not present
      */
-    public boolean mightContain(long key) {
+    public synchronized boolean mightContain(long key) {
         for (int i = 0; i < numHashFunctions; i++) {
             int hash = hash(key, i);
-            int bitIndex = Math.abs(hash % numBits);
+            int bitIndex = Math.floorMod(hash, numBits);
             if ((bits[bitIndex / 64] & (1L << (bitIndex % 64))) == 0) {
                 return false;
             }
@@ -113,7 +113,7 @@ public class BloomFilter {
     /**
      * Serialize the bloom filter to bytes for network transfer.
      */
-    public byte[] toBytes() {
+    public synchronized byte[] toBytes() {
         byte[] result = new byte[4 + bits.length * 8];
 
         // Write numBits
@@ -141,19 +141,31 @@ public class BloomFilter {
     }
 
     /**
+     * Check whether another filter uses the same hashing layout and can be merged.
+     */
+    public boolean isCompatible(BloomFilter other) {
+        return other != null
+                && this.numBits == other.numBits
+                && this.numHashFunctions == other.numHashFunctions;
+    }
+
+    /**
      * Merge another bloom filter into this one.
      * The result will contain all elements from both filters.
      * Filters should ideally have the same size for best results.
      * 
      * @param other The filter to merge into this one
      */
-    public void merge(BloomFilter other) {
+    public synchronized void merge(BloomFilter other) {
         if (other == null)
             return;
 
+        if (!isCompatible(other)) {
+            throw new IllegalArgumentException("Cannot merge bloom filters with different layouts");
+        }
+
         // Merge by OR-ing the bits together
-        int minLength = Math.min(this.bits.length, other.bits.length);
-        for (int i = 0; i < minLength; i++) {
+        for (int i = 0; i < this.bits.length; i++) {
             this.bits[i] |= other.bits[i];
         }
     }

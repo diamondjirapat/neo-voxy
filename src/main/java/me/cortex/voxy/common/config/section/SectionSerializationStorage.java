@@ -52,6 +52,16 @@ public class SectionSerializationStorage extends SectionStorage {
     }
 
     @Override
+    public boolean supportsSectionExistenceChecks() {
+        return this.backend.supportsSectionExistenceChecks();
+    }
+
+    @Override
+    public boolean hasSection(long key) {
+        return this.backend.hasSection(key);
+    }
+
+    @Override
     public void putIdMapping(int id, ByteBuffer data) {
         this.backend.putIdMapping(id, data);
     }

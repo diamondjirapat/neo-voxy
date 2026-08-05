@@ -48,6 +48,17 @@ public class ReadonlyCachingLayer extends StorageBackend {
     }
 
     @Override
+    public boolean supportsSectionExistenceChecks() {
+        return this.cache.supportsSectionExistenceChecks()
+                && this.onMiss.supportsSectionExistenceChecks();
+    }
+
+    @Override
+    public boolean hasSection(long key) {
+        return this.cache.hasSection(key) || this.onMiss.hasSection(key);
+    }
+
+    @Override
     public void putIdMapping(int id, ByteBuffer data) {
         this.cache.putIdMapping(id, data);
     }

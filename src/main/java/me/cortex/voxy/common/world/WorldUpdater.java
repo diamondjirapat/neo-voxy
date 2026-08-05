@@ -11,6 +11,28 @@ public class WorldUpdater {
 
     //NOTE: THIS RUNS ON THE THREAD IT WAS EXECUTED ON, when this method exits, the calling method may assume that VoxelizedSection is no longer needed
     public static void insertUpdate(WorldEngine into, VoxelizedSection section) {//TODO: add a bitset of levels to update and if it should force update
+        insertUpdate(into, section, MAX_LOD_LAYER);
+    }
+
+    /**
+     * Inserts a voxelized Minecraft section and updates parent LODs up to the
+     * requested layer. A max layer of zero stores only the full-resolution source
+     * voxels, allowing another machine to build the LOD hierarchy later.
+     */
+    public static void insertUpdate(WorldEngine into, VoxelizedSection section, int maxLodLayer) {
+        insertUpdate(into, section, maxLodLayer, false);
+    }
+
+    /**
+     * Insert a section, optionally walking the complete parent chain even when
+     * the level-0 voxels already match. Forced propagation repairs stale parent
+     * LODs left by a previous cache/schema version.
+     */
+    public static void insertUpdate(WorldEngine into, VoxelizedSection section,
+            int maxLodLayer, boolean forceParentRebuild) {
+        if (maxLodLayer < 0 || maxLodLayer > MAX_LOD_LAYER) {
+            throw new IllegalArgumentException("Invalid maximum LOD layer: " + maxLodLayer);
+        }
 
         //Do some very cheeky stuff for MiB
         if (VoxyCommon.IS_MINE_IN_ABYSS) {
@@ -23,12 +45,12 @@ public class WorldUpdater {
         WorldSection previousSection = null;
         final var vdat = section.section;
 
-        for (int lvl = 0; lvl <= MAX_LOD_LAYER; lvl++) {
+        for (int lvl = 0; lvl <= maxLodLayer; lvl++) {
             var worldSection = into.acquire(lvl, section.x >> (lvl + 1), section.y >> (lvl + 1), section.z >> (lvl + 1));
 
             int emptinessStateChange = 0;
             //Propagate the child existence state of the previous iteration to this section
-            if (lvl != 0 && shouldCheckEmptiness) {
+            if (lvl != 0 && (shouldCheckEmptiness || forceParentRebuild)) {
                 emptinessStateChange = worldSection.updateEmptyChildState(previousSection);
                 //We kept the previous section acquired, so we need to release it
                 previousSection.release();
@@ -114,6 +136,16 @@ public class WorldUpdater {
                 }
 
                 into.markDirty(worldSection, (didStateChange?UPDATE_TYPE_BLOCK_BIT:0)|(emptinessStateChange!=0?UPDATE_TYPE_CHILD_EXISTENCE_BIT:0), neighbors);
+            }
+
+            if (forceParentRebuild) {
+                if (lvl < maxLodLayer) {
+                    shouldCheckEmptiness = true;
+                    previousSection = worldSection;
+                } else {
+                    worldSection.release();
+                }
+                continue;
             }
 
             //Need to release the section after using it

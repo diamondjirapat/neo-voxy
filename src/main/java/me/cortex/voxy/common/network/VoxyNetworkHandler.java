@@ -19,13 +19,14 @@ import java.util.function.BiConsumer;
  */
 public class VoxyNetworkHandler {
 
-    private static final String PROTOCOL_VERSION = "1";
+    // Version 4 adds lightweight player-position recenter requests.
+    private static final String PROTOCOL_VERSION = "4";
 
     // Server-side: handlers for client→server messages
-    private static BiConsumer<ServerPlayer, VoxyPacketPayload> serverMessageHandler;
+    private static volatile BiConsumer<ServerPlayer, VoxyPacketPayload> serverMessageHandler;
 
     // Client-side: handler for server→client messages
-    private static java.util.function.Consumer<VoxyPacketPayload> clientMessageHandler;
+    private static volatile java.util.function.Consumer<VoxyPacketPayload> clientMessageHandler;
 
     // Track which players have LOD streaming enabled
     private static final ConcurrentHashMap<UUID, Boolean> playerCapabilities = new ConcurrentHashMap<>();
@@ -59,6 +60,23 @@ public class VoxyNetworkHandler {
      */
     public static void setClientMessageHandler(java.util.function.Consumer<VoxyPacketPayload> handler) {
         clientMessageHandler = handler;
+    }
+
+    /**
+     * Clear a client handler only if it is still the registered instance. This
+     * prevents an old render system from unregistering a newer receiver during a
+     * dimension or resource reload.
+     */
+    public static synchronized void clearClientMessageHandler(
+            java.util.function.Consumer<VoxyPacketPayload> handler) {
+        if (clientMessageHandler == handler) {
+            clientMessageHandler = null;
+        }
+    }
+
+    public static void clearServerState() {
+        serverMessageHandler = null;
+        playerCapabilities.clear();
     }
 
     /**

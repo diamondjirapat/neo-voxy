@@ -27,6 +27,7 @@ import org.lwjgl.system.MemoryUtil;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.LockSupport;
@@ -245,12 +246,14 @@ public class AsyncNodeManager {
         }
 
         do {
-            var job = this.childUpdateQueue.poll();
-            if (job == null)
+            Long key = this.childUpdateQueue.poll();
+            if (key == null)
                 break;
             workDone++;
-            this.manager.processChildChange(job.key, job.getNonEmptyChildren());
-            job.release();
+            Byte childMask = this.pendingChildUpdates.remove(key);
+            if (childMask == null)
+                continue;
+            this.manager.processChildChange(key, childMask);
         } while (true);
 
         // Limit uploading as well as by geometry capacity being available
@@ -637,7 +640,8 @@ public class AsyncNodeManager {
 
     // TODO: add atomic counters for each event type probably
     private final ConcurrentLinkedDeque<MemoryBuffer> requestBatchQueue = new ConcurrentLinkedDeque<>();
-    private final ConcurrentLinkedDeque<WorldSection> childUpdateQueue = new ConcurrentLinkedDeque<>();
+    private final ConcurrentLinkedDeque<Long> childUpdateQueue = new ConcurrentLinkedDeque<>();
+    private final ConcurrentHashMap<Long, Byte> pendingChildUpdates = new ConcurrentHashMap<>();
     private final ConcurrentLinkedDeque<BuiltSection> geometryUpdateQueue = new ConcurrentLinkedDeque<>();
 
     private final ConcurrentLinkedDeque<MemoryBuffer> removeBatchQueue = new ConcurrentLinkedDeque<>();
@@ -663,9 +667,12 @@ public class AsyncNodeManager {
         if (!this.running) {
             return;
         }
-        section.acquire();// We must acquire the section before putting in the queue
-        this.childUpdateQueue.add(section);
-        this.addWork();
+        long key = section.key;
+        byte childMask = section.getNonEmptyChildren();
+        if (this.pendingChildUpdates.put(key, childMask) == null) {
+            this.childUpdateQueue.add(key);
+            this.addWork();
+        }
     }
 
     private void submitGeometryResult(BuiltSection geometry) {
@@ -761,11 +768,12 @@ public class AsyncNodeManager {
         }
 
         while (true) {
-            var section = this.childUpdateQueue.poll();
-            if (section == null)
+            Long key = this.childUpdateQueue.poll();
+            if (key == null)
                 break;
-            section.release();
+            this.pendingChildUpdates.remove(key);
         }
+        this.pendingChildUpdates.clear();
 
         if (RESULT_HANDLE.get(this) != null) {
             var result = (SyncResults) RESULT_HANDLE.getAndSet(this, null);

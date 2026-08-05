@@ -187,6 +187,9 @@ public class ModelFactory {
     }
 
     public boolean addEntry(int blockId) {
+        if (blockId < 0 || blockId >= this.mapper.getBlockStateCount() || blockId >= this.idMappings.length) {
+            return false;
+        }
         if (this.idMappings[blockId] != -1) {
             return false;
         }
@@ -209,33 +212,47 @@ public class ModelFactory {
             return false;
         }
 
-        var blockState = this.mapper.getBlockStateFromBlockId(blockId);
-
-        // Before we enqueue the baking of this blockstate, we must check if it has a
-        // fluid state associated with it
-        // if it does, we must ensure that it is (effectivly) baked BEFORE we bake this
-        // blockstate
-        boolean isFluid = blockState.getBlock() instanceof LiquidBlock;
-        if ((!isFluid) && (!blockState.getFluidState().isEmpty())) {
-            // Insert into the fluid LUT
-            var fluidState = blockState.getFluidState().createLegacyBlock();
-
-            int fluidStateId = this.mapper.getIdForBlockState(fluidState);
-
-            if (this.idMappings[fluidStateId] == -1) {
-                // Dont have to check for inflight as that is done recursively :p
-
-                // This is a hack but does work :tm: due to how the download stream is setup
-                // it should enforce that the fluid state is processed before our blockstate
-                addEntry(fluidStateId);
+        try {
+            var blockState = this.mapper.getBlockStateFromBlockId(blockId);
+            if (blockState == null) {
+                this.blockStatesInFlightLock.lock();
+                this.blockStatesInFlight.remove(blockId);
+                this.blockStatesInFlightLock.unlock();
+                return false;
             }
-        }
 
-        RawBakeResult result = new RawBakeResult(blockId, blockState);
-        int allocation = this.downstream.download(MODEL_TEXTURE_SIZE * MODEL_TEXTURE_SIZE * 2 * 4 * 6,
-                ptr -> this.rawBakeResults.add(result.cpyBuf(ptr)));
-        this.bakery.renderToStream(blockState, this.downstream.getBufferId(), allocation);
-        return true;
+            // Before we enqueue the baking of this blockstate, we must check if it has a
+            // fluid state associated with it
+            // if it does, we must ensure that it is (effectivly) baked BEFORE we bake this
+            // blockstate
+            boolean isFluid = blockState.getBlock() instanceof LiquidBlock;
+            if ((!isFluid) && (!blockState.getFluidState().isEmpty())) {
+                // Insert into the fluid LUT
+                var fluidState = blockState.getFluidState().createLegacyBlock();
+
+                int fluidStateId = this.mapper.getIdForBlockState(fluidState);
+
+                if (fluidStateId >= 0 && fluidStateId < this.idMappings.length && this.idMappings[fluidStateId] == -1) {
+                    // Dont have to check for inflight as that is done recursively :p
+
+                    // This is a hack but does work :tm: due to how the download stream is setup
+                    // it should enforce that the fluid state is processed before our blockstate
+                    addEntry(fluidStateId);
+                }
+            }
+
+            RawBakeResult result = new RawBakeResult(blockId, blockState);
+            int allocation = this.downstream.download(MODEL_TEXTURE_SIZE * MODEL_TEXTURE_SIZE * 2 * 4 * 6,
+                    ptr -> this.rawBakeResults.add(result.cpyBuf(ptr)));
+            this.bakery.renderToStream(blockState, this.downstream.getBufferId(), allocation);
+            return true;
+        } catch (Throwable t) {
+            Logger.error("Failed to bake model for block ID " + blockId, t);
+            this.blockStatesInFlightLock.lock();
+            this.blockStatesInFlight.remove(blockId);
+            this.blockStatesInFlightLock.unlock();
+            return false;
+        }
     }
 
     private boolean processModelResult() {
@@ -376,15 +393,18 @@ public class ModelFactory {
     private ModelBakeResultUpload processTextureBakeResult(int blockId, BlockState blockState,
             ColourDepthTextureData[] textureData) {
         if (this.idMappings[blockId] != -1) {
-            // This should be impossible to reach as it means that multiple bakes for the
-            // same blockId happened and where inflight at the same time!
-            throw new IllegalStateException("Block id already added: " + blockId + " for state: " + blockState);
+            Logger.warn("Block id already added: " + blockId + " for state: " + blockState);
+            this.blockStatesInFlightLock.lock();
+            this.blockStatesInFlight.remove(blockId);
+            this.blockStatesInFlightLock.unlock();
+            return null;
         }
 
         this.blockStatesInFlightLock.lock();
         if (!this.blockStatesInFlight.contains(blockId)) {
             this.blockStatesInFlightLock.unlock();
-            throw new IllegalStateException("processing a texture bake result but the block state was not in flight!!");
+            Logger.warn("Processing a texture bake result but the block state was not in flight: " + blockId);
+            return null;
         }
         this.blockStatesInFlightLock.unlock();
 
@@ -402,9 +422,12 @@ public class ModelFactory {
 
             int fluidStateId = this.mapper.getIdForBlockState(fluidState);
 
-            clientFluidStateId = this.idMappings[fluidStateId];
+            if (fluidStateId >= 0 && fluidStateId < this.idMappings.length) {
+                clientFluidStateId = this.idMappings[fluidStateId];
+            }
             if (clientFluidStateId == -1) {
-                throw new IllegalStateException("Block has a fluid state but fluid state is not already baked!!!");
+                // Fallback to 0 if fluid model state hasn't finished baking yet
+                clientFluidStateId = 0;
             }
         }
 
@@ -416,10 +439,7 @@ public class ModelFactory {
                 modelId = possibleDuplicate;
                 // Remove from flight
                 this.blockStatesInFlightLock.lock();
-                if (!this.blockStatesInFlight.remove(blockId)) {
-                    this.blockStatesInFlightLock.unlock();
-                    throw new IllegalStateException();
-                }
+                this.blockStatesInFlight.remove(blockId);
                 this.blockStatesInFlightLock.unlock();
                 return null;
             } else {// Not a duplicate so create a new entry
@@ -716,10 +736,7 @@ public class ModelFactory {
         this.idMappings[blockId] = modelId;
 
         this.blockStatesInFlightLock.lock();
-        if (!this.blockStatesInFlight.remove(blockId)) {
-            this.blockStatesInFlightLock.unlock();
-            throw new IllegalStateException("processing a texture bake result but the block state was not in flight!!");
-        }
+        this.blockStatesInFlight.remove(blockId);
         this.blockStatesInFlightLock.unlock();
 
         return uploadResult;
@@ -970,12 +987,12 @@ public class ModelFactory {
         return this.idMappings[blockId] != -1;
     }
 
-    public int getFluidClientStateId(int clientBlockStateId) {
-        int map = this.fluidStateLUT[clientBlockStateId];
-        if (map == -1) {
-            throw new IdNotYetComputedException(clientBlockStateId, false);
+    public int getFluidClientStateId(int modelId) {
+        if (modelId < 0 || modelId >= this.fluidStateLUT.length) {
+            return modelId;
         }
-        return map;
+        int map = this.fluidStateLUT[modelId];
+        return map == -1 ? modelId : map;
     }
 
     public long getModelMetadataFromClientId(int clientId) {

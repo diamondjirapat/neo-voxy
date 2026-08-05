@@ -65,7 +65,10 @@ public class WorldEngine {
         this.instanceIn = instance;
 
         int cacheSize = 1024;
-        if (Runtime.getRuntime().maxMemory() >= (1L << 32) - (200L << 20)) {
+        // Each cached section owns a 256 KiB array. Only use the 512 MiB cache
+        // tier when the JVM has enough headroom for Minecraft and multiple
+        // dimensions; a 6 GiB server now stays on the 256 MiB tier.
+        if (Runtime.getRuntime().maxMemory() >= (8L << 30)) {
             cacheSize = 2048;
         }
 
@@ -169,6 +172,11 @@ public class WorldEngine {
             throw new IllegalStateException();
         }
 
+        // The secondary cache owns no active references, but each entry still
+        // retains a 256 KiB voxel array. Drop it when the world becomes idle so a
+        // closed dimension cannot keep hundreds of megabytes reachable.
+        this.sectionTracker.clearSecondaryCache();
+
         this.thisTracker.free();
         try {
             this.mapper.close();
@@ -229,8 +237,12 @@ public class WorldEngine {
     }
 
     public void releaseRef() {
-        if (!this.isLive)
-            throw new IllegalStateException();
+        if (!this.isLive) {
+            if (this.refCount.decrementAndGet() < 0) {
+                this.refCount.set(0);
+            }
+            return;
+        }
         if (this.refCount.decrementAndGet() < 0) {
             throw new IllegalStateException("ref count less than 0");
         }

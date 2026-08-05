@@ -29,13 +29,17 @@ public class ModelBakerySubsystem {
     public ModelBakerySubsystem(Mapper mapper) {
         this.mapper = mapper;
         this.factory = new ModelFactory(mapper, this.storage);
-        this.processingThread = new Thread(()->{//TODO replace this with something good/integrate it into the async processor so that we just have less threads overall
+        this.processingThread = new Thread(()->{
             while (this.isRunning) {
-                this.factory.processAllThings();
+                try {
+                    this.factory.processAllThings();
+                } catch (Throwable t) {
+                    Logger.error("Error in model factory processor thread", t);
+                }
                 try {
                     Thread.sleep(10);
                 } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
+                    break;
                 }
             }
         }, "Model factory processor");
@@ -83,19 +87,22 @@ public class ModelBakerySubsystem {
     //This is on this side only and done like this as only worker threads call this code
     private final ReentrantLock seenIdsLock = new ReentrantLock();
     private final IntOpenHashSet seenIds = new IntOpenHashSet(6000);//TODO: move to a lock free concurrent hashmap
-    public void requestBlockBake(int blockId) {
-        if (this.mapper.getBlockStateCount() < blockId) {
-            Logger.error("Error, got bakeing request for out of range state id. StateId: " + blockId + " max id: " + this.mapper.getBlockStateCount(), new Exception());
-            return;
+    public boolean requestBlockBake(int blockId) {
+        if (blockId < 0 || this.mapper.getBlockStateCount() <= blockId) {
+            Logger.error("Error, got baking request for out of range state id. StateId: " + blockId + " max id: " + this.mapper.getBlockStateCount());
+            return false;
         }
         this.seenIdsLock.lock();
-        if (!this.seenIds.add(blockId)) {
+        try {
+            if (!this.seenIds.add(blockId)) {
+                return false;
+            }
+        } finally {
             this.seenIdsLock.unlock();
-            return;
         }
-        this.seenIdsLock.unlock();
         this.blockIdQueue.add(blockId);
         this.blockIdCount.incrementAndGet();
+        return true;
     }
 
     public void addBiome(Mapper.BiomeEntry biomeEntry) {

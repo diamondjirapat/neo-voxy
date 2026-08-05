@@ -25,12 +25,11 @@ public class Voxy {
         // Register network handler (both client and server)
         modEventBus.addListener(VoxyNetworkHandler::register);
 
-        // Register client setup event only on client dist
+        // Register client setup event on client dist, and server initializer on all dists
         if (FMLLoader.getDist() == Dist.CLIENT) {
             ClientInitializer.register(modEventBus);
-        } else {
-            ServerInitializer.register();
         }
+        ServerInitializer.register();
     }
 
     private static class ServerInitializer {
@@ -52,6 +51,7 @@ public class Voxy {
         private static void register(IEventBus modEventBus) {
             modEventBus.addListener(ClientInitializer::onClientSetup);
             NeoForge.EVENT_BUS.addListener(ClientInitializer::onRegisterClientCommands);
+            NeoForge.EVENT_BUS.addListener(ClientInitializer::onCustomizeDebugText);
         }
 
         private static void onClientSetup(FMLClientSetupEvent event) {
@@ -64,6 +64,40 @@ public class Voxy {
         private static void onRegisterClientCommands(RegisterClientCommandsEvent event) {
             if (VoxyCommon.isAvailable()) {
                 event.getDispatcher().register(me.cortex.voxy.client.VoxyCommands.register());
+            }
+        }
+
+        private static void onCustomizeDebugText(net.neoforged.neoforge.client.event.CustomizeGuiOverlayEvent.DebugText event) {
+            var left = event.getLeft();
+            if (!VoxyCommon.isAvailable()) {
+                left.add(net.minecraft.ChatFormatting.RED + "[NeoVoxy] Disabled");
+                return;
+            }
+            var instance = VoxyCommon.getInstance();
+            if (instance == null) {
+                left.add(net.minecraft.ChatFormatting.YELLOW + "[NeoVoxy] Inactive");
+                return;
+            }
+            var wr = net.minecraft.client.Minecraft.getInstance().levelRenderer;
+            me.cortex.voxy.client.core.VoxyRenderSystem vrs = null;
+            if (wr != null) {
+                vrs = ((me.cortex.voxy.client.core.IGetVoxyRenderSystem) wr).getVoxyRenderSystem();
+            }
+
+            left.add((vrs != null ? net.minecraft.ChatFormatting.GREEN : net.minecraft.ChatFormatting.DARK_GREEN) + "[NeoVoxy] " + VoxyCommon.MOD_VERSION);
+
+            java.util.List<String> instanceLines = new java.util.ArrayList<>();
+            instance.addDebug(instanceLines);
+            for (String line : instanceLines) {
+                left.add(net.minecraft.ChatFormatting.AQUA + " [Instance] " + line);
+            }
+
+            if (vrs != null) {
+                java.util.List<String> renderLines = new java.util.ArrayList<>();
+                vrs.addDebugInfo(renderLines);
+                for (String line : renderLines) {
+                    left.add(net.minecraft.ChatFormatting.GREEN + " [Render] " + line);
+                }
             }
         }
     }

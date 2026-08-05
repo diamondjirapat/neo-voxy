@@ -186,6 +186,17 @@ public class RocksDBStorageBackend extends StorageBackend {
     }
 
     @Override
+    public boolean supportsSectionExistenceChecks() {
+        return true;
+    }
+
+    @Override
+    public boolean hasSection(long key) {
+        return this.db.keyExists(this.worldSections, this.sectionReadOps,
+                longToBytes(swizzlePos(key)));
+    }
+
+    @Override
     public void putIdMapping(int id, ByteBuffer data) {
         try {
             var buffer = new byte[data.remaining()];

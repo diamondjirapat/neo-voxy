@@ -43,6 +43,7 @@ public class Mapper {
 
     private final ReentrantLock blockLock = new ReentrantLock();
     private final ConcurrentHashMap<BlockState, StateEntry> block2stateEntry = new ConcurrentHashMap<>(2000, 0.75f, 10);
+    private final ConcurrentHashMap<String, Integer> blockStateString2Id = new ConcurrentHashMap<>(2000, 0.75f, 10);
     private final ObjectArrayList<StateEntry> blockId2stateEntry = new ObjectArrayList<>();
 
     private final ReentrantLock biomeLock = new ReentrantLock();
@@ -57,6 +58,7 @@ public class Mapper {
         // Insert air since its a special entry (index 0)
         var airEntry = new StateEntry(0, Blocks.AIR.defaultBlockState());
         this.block2stateEntry.put(airEntry.state, airEntry);
+        this.blockStateString2Id.put(airEntry.state.toString(), airEntry.id);
         this.blockId2stateEntry.add(airEntry);
 
         this.loadFromStorage();
@@ -160,6 +162,7 @@ public class Mapper {
                 throw new IllegalStateException("Block entry not ordered");
             }
             this.blockId2stateEntry.add(entry);
+            this.blockStateString2Id.putIfAbsent(entry.state.toString(), entry.id);
         });
 
         bentries.stream().sorted(Comparator.comparing(a -> a.id)).forEach(entry -> {
@@ -190,6 +193,7 @@ public class Mapper {
 
         entry = new StateEntry(this.blockId2stateEntry.size(), state);
         this.block2stateEntry.put(state, entry);
+        this.blockStateString2Id.put(state.toString(), entry.id);
         this.blockId2stateEntry.add(entry);
         this.blockLock.unlock();
 
@@ -232,7 +236,11 @@ public class Mapper {
     }
 
     public BlockState getBlockStateFromBlockId(int blockId) {
-        return this.blockId2stateEntry.get(blockId).state;
+        if (blockId < 0 || blockId >= this.blockId2stateEntry.size()) {
+            return Blocks.AIR.defaultBlockState();
+        }
+        var entry = this.blockId2stateEntry.get(blockId);
+        return entry != null ? entry.state : Blocks.AIR.defaultBlockState();
     }
 
     // TODO: replace lambda with a class cached lambda ref (cause doing this:: still
@@ -272,12 +280,7 @@ public class Mapper {
      * @return The block ID, or -1 if not found
      */
     public int getIdForBlockStateString(String blockStateString) {
-        for (var entry : this.block2stateEntry.entrySet()) {
-            if (entry.getKey().toString().equals(blockStateString)) {
-                return entry.getValue().id;
-            }
-        }
-        return -1;
+        return this.blockStateString2Id.getOrDefault(blockStateString, -1);
     }
 
     /**

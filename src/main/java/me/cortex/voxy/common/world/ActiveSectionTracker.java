@@ -290,6 +290,18 @@ public class ActiveSectionTracker {
         return this.lruSecondaryCache.size();
     }
 
+    /** Release the large voxel arrays retained by the secondary LRU cache. */
+    void clearSecondaryCache() {
+        long stamp = this.lruLock.writeLock();
+        try {
+            while (!this.lruSecondaryCache.isEmpty()) {
+                this.lruSecondaryCache.removeFirst()._releaseArray();
+            }
+        } finally {
+            this.lruLock.unlockWrite(stamp);
+        }
+    }
+
     public static void main(String[] args) throws InterruptedException {
         var tracker = new ActiveSectionTracker(6, a->0, 2<<10);
         var bean = tracker.acquire(0, 0, 0, 9, false);

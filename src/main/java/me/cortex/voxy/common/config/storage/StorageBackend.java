@@ -15,6 +15,18 @@ public abstract class StorageBackend implements IMappingStorage {
 
     public abstract void deleteSectionData(long key);
 
+    /**
+     * Whether this backend can test section-key existence without loading and
+     * deserializing the section value.
+     */
+    public boolean supportsSectionExistenceChecks() {
+        return false;
+    }
+
+    public boolean hasSection(long key) {
+        throw new UnsupportedOperationException("Section existence checks are not supported");
+    }
+
     public abstract void flush();
 
     public abstract void close();

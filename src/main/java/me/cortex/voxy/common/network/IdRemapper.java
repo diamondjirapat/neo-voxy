@@ -92,6 +92,20 @@ public class IdRemapper {
     }
 
     /**
+     * Return whether the current mapper snapshot can safely translate this voxel.
+     * Missing IDs must not use the maps' default value because that silently turns
+     * unknown blocks into air while a server import is expanding the mapper.
+     */
+    public boolean hasMappingsForVoxel(long serverVoxelId) {
+        int serverBlockId = Mapper.getBlockId(serverVoxelId);
+        if (serverBlockId == 0) {
+            return true;
+        }
+        return serverToClientBlock.containsKey(serverBlockId)
+                && serverToClientBiome.containsKey(Mapper.getBiomeId(serverVoxelId));
+    }
+
+    /**
      * Check if the remapper has been initialized with server data.
      */
     public boolean isReady() {

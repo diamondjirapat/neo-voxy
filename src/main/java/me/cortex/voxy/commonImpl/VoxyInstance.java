@@ -15,11 +15,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.locks.StampedLock;
 import java.util.function.BooleanSupplier;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 //TODO: add thread access verification (I.E. only accessible on a single thread)
 public abstract class VoxyInstance {
+    private static final int MAX_PENDING_SECTION_SAVES = 1024;
     private volatile boolean isRunning = true;
+    private volatile BooleanSupplier backgroundWorkRunChecker = () -> true;
     private final Thread worldCleaner;
     public final BooleanSupplier savingServiceRateLimiter;// Can run if this returns true
     protected final UnifiedServiceThreadPool threadPool;
@@ -34,10 +37,17 @@ public abstract class VoxyInstance {
     public VoxyInstance() {
         Logger.info("Initializing voxy instance");
         this.threadPool = new UnifiedServiceThreadPool();
-        this.savingService = new SectionSavingService(this.getServiceManager());
-        this.ingestService = new VoxelIngestService(this.getServiceManager());
+        this.savingService = new SectionSavingService(
+                this.getServiceManager(), this::isBackgroundWorkAllowed);
+        // A queued save retains its WorldSection and therefore roughly 256 KiB of
+        // voxel data. Keep the backlog near 256 MiB instead of allowing the old
+        // 8,000-section (~2 GiB) high-water mark.
+        this.savingServiceRateLimiter = () ->
+                this.isBackgroundWorkAllowed()
+                        && this.savingService.getTaskCount() < MAX_PENDING_SECTION_SAVES;
+        this.ingestService = new VoxelIngestService(
+                this.getServiceManager(), this.savingServiceRateLimiter);
         this.importManager = this.createImportManager();
-        this.savingServiceRateLimiter = () -> this.savingService.getTaskCount() < 8000;
         this.worldCleaner = new Thread(() -> {
             try {
                 while (this.isRunning) {
@@ -83,6 +93,14 @@ public abstract class VoxyInstance {
 
     public VoxelIngestService getIngestService() {
         return this.ingestService;
+    }
+
+    private boolean isBackgroundWorkAllowed() {
+        return this.backgroundWorkRunChecker.getAsBoolean();
+    }
+
+    public void setBackgroundWorkRunChecker(BooleanSupplier runChecker) {
+        this.backgroundWorkRunChecker = Objects.requireNonNull(runChecker, "runChecker");
     }
 
     public ImportManager getImportManager() {

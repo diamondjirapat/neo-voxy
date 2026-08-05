@@ -65,7 +65,15 @@ public class VoxyClientInstance extends VoxyInstance {
     protected SectionStorage createStorage(WorldIdentifier identifier) {
         var ctx = new ConfigBuildCtx();
         ctx.setProperty(ConfigBuildCtx.BASE_SAVE_PATH, this.basePath.toString());
-        ctx.setProperty(ConfigBuildCtx.WORLD_IDENTIFIER, identifier.getWorldId());
+        String storageWorldId = identifier.getWorldId();
+        if (Minecraft.getInstance().getSingleplayerServer() == null) {
+            // Server-streamed level-0 sources now build their complete parent LOD
+            // chain on the client. Keep that layout separate from caches written
+            // by the older direct-server-LOD protocol so stale vertical parents
+            // cannot survive merely because their level-0 voxels still match.
+            storageWorldId += "_streamed_sources_v1";
+        }
+        ctx.setProperty(ConfigBuildCtx.WORLD_IDENTIFIER, storageWorldId);
         ctx.pushPath(ConfigBuildCtx.DEFAULT_STORAGE_PATH);
         return this.storageConfig.build(ctx);
     }

@@ -19,11 +19,14 @@ import org.jetbrains.annotations.NotNull;
  * <li>{@link #MSG_CACHE_RESPONSE} - Client responds with bloom filter</li>
  * <li>{@link #MSG_RATE_UPDATE} - Client sends desired rate to server</li>
  * <li>{@link #MSG_SYNC_REQUEST} - Client requests LOD sync</li>
+ * <li>{@link #MSG_RECENTER_REQUEST} - Client requests scan recentering</li>
  * <li>{@link #MSG_REQUEST_SECTIONS} - Client requests specific sections (pull
  * model)</li>
  * </ul>
  */
 public record VoxyPacketPayload(byte messageType, byte[] data) implements CustomPacketPayload {
+
+    public static final int SESSION_HEADER_SIZE = Long.BYTES;
 
     public static final ResourceLocation ID = ResourceLocation.fromNamespaceAndPath("neovoxy", "lod_sync");
     public static final Type<VoxyPacketPayload> TYPE = new Type<>(ID);
@@ -38,6 +41,8 @@ public record VoxyPacketPayload(byte messageType, byte[] data) implements Custom
     public static final byte MSG_SYNC_REQUEST = 6; // Client→Server: request LOD sync
     public static final byte MSG_SYNC_COMPLETE = 7; // Server→Client: signals streaming complete
     public static final byte MSG_REQUEST_SECTIONS = 8; // Client→Server: request specific sections (pull model)
+    public static final byte MSG_MAPPER_REQUEST = 9; // Client→Server: refresh mapper for current session
+    public static final byte MSG_RECENTER_REQUEST = 10; // Client→Server: recenter current circular scan
 
     @NotNull
     @Override
@@ -77,11 +82,19 @@ public record VoxyPacketPayload(byte messageType, byte[] data) implements Custom
         return new VoxyPacketPayload(MSG_LOD_SECTION, sectionData);
     }
 
+    public static VoxyPacketPayload section(long sessionId, byte[] sectionData) {
+        return new VoxyPacketPayload(MSG_LOD_SECTION, withSession(sessionId, sectionData));
+    }
+
     /**
      * Helper to create a chunk payload for chunked transfer.
      */
     public static VoxyPacketPayload chunk(byte[] chunkData) {
         return new VoxyPacketPayload(MSG_LOD_CHUNK, chunkData);
+    }
+
+    public static VoxyPacketPayload chunk(long sessionId, byte[] chunkData) {
+        return new VoxyPacketPayload(MSG_LOD_CHUNK, withSession(sessionId, chunkData));
     }
 
     /**
@@ -91,11 +104,51 @@ public record VoxyPacketPayload(byte messageType, byte[] data) implements Custom
         return new VoxyPacketPayload(MSG_MAPPER_SYNC, mapperData);
     }
 
+    public static VoxyPacketPayload mapperSync(long sessionId, byte[] mapperData) {
+        return new VoxyPacketPayload(MSG_MAPPER_SYNC, withSession(sessionId, mapperData));
+    }
+
+    public static VoxyPacketPayload mapperRequest(long sessionId) {
+        return new VoxyPacketPayload(MSG_MAPPER_REQUEST, withSession(sessionId, new byte[0]));
+    }
+
+    public static VoxyPacketPayload recenterRequest(long sessionId) {
+        return new VoxyPacketPayload(MSG_RECENTER_REQUEST, withSession(sessionId, new byte[0]));
+    }
+
+    /**
+     * Signal that the initial scan and every queued transfer for this session are
+     * complete.
+     */
+    public static VoxyPacketPayload syncComplete(long sessionId) {
+        return new VoxyPacketPayload(MSG_SYNC_COMPLETE, withSession(sessionId, new byte[0]));
+    }
+
     /**
      * Helper to create a sync request payload.
      */
     public static VoxyPacketPayload syncRequest() {
         return new VoxyPacketPayload(MSG_SYNC_REQUEST, new byte[0]);
+    }
+
+    /**
+     * Request a sync using a horizontal radius measured in Minecraft chunks.
+     */
+    public static VoxyPacketPayload syncRequest(int radiusChunks) {
+        byte[] data = new byte[Integer.BYTES];
+        data[0] = (byte) (radiusChunks >> 24);
+        data[1] = (byte) (radiusChunks >> 16);
+        data[2] = (byte) (radiusChunks >> 8);
+        data[3] = (byte) radiusChunks;
+        return new VoxyPacketPayload(MSG_SYNC_REQUEST, data);
+    }
+
+    public int parseSyncRadiusChunks(int defaultRadiusChunks) {
+        if (messageType != MSG_SYNC_REQUEST || data.length < Integer.BYTES) {
+            return defaultRadiusChunks;
+        }
+        return ((data[0] & 0xFF) << 24) | ((data[1] & 0xFF) << 16) |
+                ((data[2] & 0xFF) << 8) | (data[3] & 0xFF);
     }
 
     /**
@@ -228,6 +281,10 @@ public record VoxyPacketPayload(byte messageType, byte[] data) implements Custom
         return new VoxyPacketPayload(MSG_CACHE_QUERY, encodeLongArray(sectionKeys));
     }
 
+    public static VoxyPacketPayload cacheQuery(long sessionId) {
+        return new VoxyPacketPayload(MSG_CACHE_QUERY, withSession(sessionId, new byte[0]));
+    }
+
     /**
      * Parse section keys from a cache query payload.
      * 
@@ -251,16 +308,56 @@ public record VoxyPacketPayload(byte messageType, byte[] data) implements Custom
         return new VoxyPacketPayload(MSG_CACHE_RESPONSE, bloomFilter.toBytes());
     }
 
+    public static VoxyPacketPayload cacheResponse(long sessionId, BloomFilter bloomFilter) {
+        return new VoxyPacketPayload(MSG_CACHE_RESPONSE,
+                withSession(sessionId, bloomFilter.toBytes()));
+    }
+
     /**
      * Parse bloom filter from a cache response payload.
      * 
      * @return BloomFilter representing client's cached sections
      */
     public BloomFilter parseCacheResponseBloomFilter() {
-        if (messageType != MSG_CACHE_RESPONSE) {
+        if (messageType != MSG_CACHE_RESPONSE || data.length < SESSION_HEADER_SIZE) {
             return BloomFilter.forExpectedElements(0);
         }
-        return BloomFilter.fromBytes(data);
+        return BloomFilter.fromBytes(parseSessionData());
+    }
+
+    /**
+     * Read the streaming session prefix used by server-to-client transfer packets
+     * and cache responses.
+     */
+    public long parseSessionId() {
+        if (data == null || data.length < SESSION_HEADER_SIZE) {
+            return Long.MIN_VALUE;
+        }
+
+        long result = 0;
+        for (int i = 0; i < SESSION_HEADER_SIZE; i++) {
+            result = (result << 8) | (data[i] & 0xFFL);
+        }
+        return result;
+    }
+
+    /**
+     * Return the packet data after its streaming session prefix.
+     */
+    public byte[] parseSessionData() {
+        if (data == null || data.length < SESSION_HEADER_SIZE) {
+            return new byte[0];
+        }
+        return java.util.Arrays.copyOfRange(data, SESSION_HEADER_SIZE, data.length);
+    }
+
+    private static byte[] withSession(long sessionId, byte[] payloadData) {
+        byte[] result = new byte[SESSION_HEADER_SIZE + payloadData.length];
+        for (int i = 0; i < SESSION_HEADER_SIZE; i++) {
+            result[i] = (byte) (sessionId >> (56 - (i * 8)));
+        }
+        System.arraycopy(payloadData, 0, result, SESSION_HEADER_SIZE, payloadData.length);
+        return result;
     }
 
     /**

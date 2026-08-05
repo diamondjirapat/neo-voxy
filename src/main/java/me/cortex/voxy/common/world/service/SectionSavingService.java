@@ -3,21 +3,31 @@ package me.cortex.voxy.common.world.service;
 import me.cortex.voxy.common.Logger;
 import me.cortex.voxy.common.thread.Service;
 import me.cortex.voxy.common.thread.ServiceManager;
+import me.cortex.voxy.common.util.Pair;
 import me.cortex.voxy.common.world.WorldEngine;
 import me.cortex.voxy.common.world.WorldSection;
 
 import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.function.BooleanSupplier;
 
 //TODO: add an option for having synced saving, that is when call enqueueSave, that will instead, instantly
 // save to the db, this can be useful for just reducing the amount of thread pools in total
 // might have some issues with threading if the same section is saved from multiple threads?
 public class SectionSavingService {
     private final Service service;
+    private volatile boolean shutdownStarted;
     private record SaveEntry(WorldEngine engine, WorldSection section) {}
     private final ConcurrentLinkedDeque<SaveEntry> saveQueue = new ConcurrentLinkedDeque<>();
 
     public SectionSavingService(ServiceManager sm) {
-        this.service = sm.createServiceNoCleanup(() -> this::processJob, 500, "Section saving service");
+        this(sm, () -> true);
+    }
+
+    public SectionSavingService(ServiceManager sm, BooleanSupplier runChecker) {
+        this.service = sm.createService(
+                () -> new Pair<>(this::processJob, () -> {}),
+                500, "Section saving service",
+                () -> this.shutdownStarted || runChecker.getAsBoolean());
     }
 
     private void processJob() {
@@ -55,6 +65,7 @@ public class SectionSavingService {
     }
 
     public void shutdown() {
+        this.shutdownStarted = true;
         if (this.service.numJobs() != 0) {
             Logger.error("Voxy section saving still in progress, estimated " + this.service.numJobs() + " sections remaining.");
             this.service.blockTillEmpty();
